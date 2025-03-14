@@ -73,22 +73,23 @@ def fec_encode_and_send(temp_packets):
         encoded_data = fec.encode(b"".join(temp_packets))
         encoded_packets = [encoded_data[i:i + len(temp_packets[0])] for i in range(0, len(encoded_data), len(temp_packets[0]))]
 
-        # 限制封包發送數量為 FEC_ORIGINAL_PACKETS + FEC_REDUNDANT_PACKETS
         udp_packets = temp_packets[:FEC_ORIGINAL_PACKETS] + encoded_packets[:FEC_REDUNDANT_PACKETS]
 
         sent_count = 0
         for i, packet in enumerate(udp_packets):
-            # 加入序號 (使用 struct 封裝成 4 個位元組)
             seq_num = struct.pack('!I', i)
             packet = seq_num + packet
 
             if len(packet) > 1472:
                 for j in range(0, len(packet), 1472):
-                    udp_socket.sendto(packet[j:j+1472], (UDP_FORWARD_IP, UDP_FORWARD_PORT))
+                    chunk = packet[j:j+1472]
+                    udp_socket.sendto(chunk, (UDP_FORWARD_IP, UDP_FORWARD_PORT))
                     sent_count += 1
+                    logging.debug(f"發送分塊封包 (大小: {len(chunk)})")
             else:
                 udp_socket.sendto(packet, (UDP_FORWARD_IP, UDP_FORWARD_PORT))
                 sent_count += 1
+                logging.debug(f"發送封包 (大小: {len(packet)})")
 
         logging.debug(f"成功發送 {sent_count} 個封包 (應為 {FEC_ORIGINAL_PACKETS + FEC_REDUNDANT_PACKETS})")
 
@@ -108,7 +109,6 @@ def handle_udp_packet():
                 if packets and len(data) != len(packets[0]):
                     logging.warning(f"封包大小不同，仍將其加入緩存 (收到: {len(data)}, 預期: {len(packets[0])})")
 
-                # 加入序號
                 seq_num = struct.pack('!I', packet_counter)
                 packet_counter += 1
 
