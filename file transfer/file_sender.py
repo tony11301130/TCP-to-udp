@@ -1,17 +1,21 @@
+# === Sender Configuration ===
 import os
 import time
 import socket
 import hashlib
+import threading
 
-# 設定參數
 UPLOAD_DIR = "/home/tony/code/file-transfer/upload"
 SENT_DIR = "/home/tony/code/file-transfer/sent"
 CHUNK_SIZE = 1024
 DEST_IP = "192.168.1.91"
 DEST_PORT = 5005
-PACKET_INTERVAL = 0.001  # 每個封包傳送間隔 (秒)
+PACKET_INTERVAL = 0.001
 
-# 檢查檔案是否在一定時間內保持大小穩定
+def has_double_extension(filename):
+    parts = filename.split('.')
+    return len(parts) > 2
+
 def wait_until_stable(filepath, wait_time=1, retries=5):
     for i in range(retries):
         size1 = os.path.getsize(filepath)
@@ -26,7 +30,6 @@ def wait_until_stable(filepath, wait_time=1, retries=5):
             print(f"⏳ 嘗試第 {i+1}/{retries} 次：檔案大小仍在變動")
     return False
 
-# 傳送單一檔案
 def send_file(filepath, sock):
     filename = os.path.basename(filepath).encode()
     filename_len = len(filename)
@@ -40,7 +43,6 @@ def send_file(filepath, sock):
 
     sha256 = hashlib.sha256(data).hexdigest().encode()
 
-    # metadata 封包：type=0x00 | total_chunks (4 bytes) | filename_len (1 byte) | filename | sha256
     metadata = (
         b"\x00" +
         total_chunks.to_bytes(4, 'big') +
@@ -62,7 +64,6 @@ def send_file(filepath, sock):
 
     print(f"✅ 傳送完成：{filepath} ({total_chunks} chunks)")
 
-# 監控 upload 資料夾，並傳送新檔案
 def watch_folder():
     os.makedirs(SENT_DIR, exist_ok=True)
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -74,6 +75,10 @@ def watch_folder():
             for fname in files:
                 src = os.path.join(UPLOAD_DIR, fname)
                 print(f"\n🔍 檢查檔案：{fname}")
+
+                if has_double_extension(fname):
+                    print(f"⛔️ 雙附檔名禁止：{fname}，跳過")
+                    continue
 
                 if not os.path.exists(src):
                     print(f"⚠️  檔案不存在，跳過：{fname}")

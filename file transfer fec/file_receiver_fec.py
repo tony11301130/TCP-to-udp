@@ -43,7 +43,8 @@ def handle_packet(packet):
         file_buffers[filename] = {
             'chunks': {},
             'total': total,
-            'hash': sha256
+            'hash': sha256,
+            'print_counter': 0
         }
         print(f"📥 Metadata received: {filename} ({total} chunks)")
 
@@ -54,7 +55,9 @@ def handle_packet(packet):
         for fname, info in file_buffers.items():
             if seq not in info['chunks'] and len(info['chunks']) < info['total']:
                 info['chunks'][seq] = data
-                print(f"📦 Chunk {seq} received for '{fname}'")
+                info['print_counter'] += 1
+                if info['print_counter'] % 1000 == 0:
+                    print(f"📦 已收到 {info['print_counter']} chunks for '{fname}'")
                 if len(info['chunks']) == info['total']:
                     save_file(fname, info['chunks'], info['hash'])
                     del file_buffers[fname]

@@ -1,3 +1,6 @@
+# ✅ 改版：UDP File Transfer v2（第一階段 + 雙副檔名過濾）
+# 包含：socket buffer 調整 + 批次傳送 + receiver 去 thread + 雙副檔名過濾
+
 # === SENDER ===
 import os
 import time
@@ -26,6 +29,10 @@ def wait_until_stable(filepath, wait_time=1, retries=5):
         else:
             print(f"⏳ 嘗試第 {i+1}/{retries} 次：檔案大小仍在變動")
     return False
+
+
+def has_double_extension(filename):
+    return filename.count(".") > 1
 
 
 def send_file(filepath, sock):
@@ -77,6 +84,10 @@ def watch_folder():
             for fname in files:
                 src = os.path.join(UPLOAD_DIR, fname)
                 print(f"\n🔍 檢查檔案：{fname}")
+
+                if has_double_extension(fname):
+                    print(f"🚫 跳過雙副檔名檔案：{fname}")
+                    continue
 
                 if not os.path.exists(src):
                     print(f"⚠️  檔案不存在，跳過：{fname}")
