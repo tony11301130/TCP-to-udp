@@ -1,16 +1,14 @@
 import asyncio
 import hashlib
 import os
-import struct
+import socket
 from concurrent.futures import ThreadPoolExecutor
 
-RECEIVE_DIR = "/home/tony/code/file-transfer/received"
+# 接收檔案儲存目錄
+RECEIVE_DIR = "/tmp/received"
 CHUNK_SIZE = 1024
-UNIX_SOCKET_PATH = "/tmp/udp_to_py.sock"
 
 os.makedirs(RECEIVE_DIR, exist_ok=True)
-if os.path.exists(UNIX_SOCKET_PATH):
-    os.remove(UNIX_SOCKET_PATH)
 
 class FileBuffer:
     def __init__(self, filename, total_chunks, sha256):
@@ -49,8 +47,9 @@ class FileBuffer:
         return actual_hash == self.sha256
 
 file_map = {}
-executor = ThreadPoolExecutor(max_workers=16)
+executor = ThreadPoolExecutor(max_workers=16)  # 增加 worker 數量以提升寫入效能
 
+# 非同步封包處理邏輯
 async def process_packet(packet):
     if packet[0] == 0x00:
         file_id = packet[1:5]
@@ -60,6 +59,7 @@ async def process_packet(packet):
         sha256 = packet[10 + name_len:].decode()
         file_map[file_id] = FileBuffer(filename, total, sha256)
         print(f"📘 Metadata received: {filename}, total chunks: {total}")
+
     elif packet[0] == 0x01:
         file_id = packet[1:5]
         seq = int.from_bytes(packet[5:9], 'big')
@@ -75,23 +75,21 @@ async def process_packet(packet):
                     print(f"❌ Hash mismatch for {buf.filename}")
                 del file_map[file_id]
 
-async def handle_stream(reader, writer):
-    print(f"🟢 Python stream socket listener started at {UNIX_SOCKET_PATH}")
-    try:
-        while True:
-            header = await reader.readexactly(4)
-            length = struct.unpack("I", header)[0]
-            data = await reader.readexactly(length)
-            asyncio.create_task(process_packet(data))
-    except asyncio.IncompleteReadError:
-        print("❌ 對方關閉連線")
-    except Exception as e:
-        print(f"❌ Stream error: {e}")
+# 使用非同步 socket loop 接收封包（取代 DatagramProtocol）
+async def receive_loop():
+    print("🟢 Starting high-speed UDP socket receiver loop on port 5005...")
+    loop = asyncio.get_running_loop()
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 64 * 1024 * 1024)  # 設定接收 buffer 大小
+    sock.setblocking(False)
+    sock.bind(('0.0.0.0', 5005))
 
-async def unix_stream_server():
-    server = await asyncio.start_unix_server(handle_stream, path=UNIX_SOCKET_PATH)
-    async with server:
-        await server.serve_forever()
+    while True:
+        try:
+            data, addr = await loop.sock_recvfrom(sock, CHUNK_SIZE + 100)
+            asyncio.create_task(process_packet(data))
+        except Exception as e:
+            print(f"❌ Socket error: {e}")
 
 if __name__ == '__main__':
-    asyncio.run(unix_stream_server())
+    asyncio.run(receive_loop())
